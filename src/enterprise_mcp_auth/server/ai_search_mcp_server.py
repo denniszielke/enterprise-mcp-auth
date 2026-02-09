@@ -28,28 +28,49 @@ AZURE_TENANT_ID = os.getenv("AZURE_TENANT_ID", "")
 JWT_ISSUER = os.getenv("JWT_ISSUER", "")
 JWT_AUDIENCE = os.getenv("JWT_AUDIENCE", "")
 
-# Initialize FastMCP with OAuth Proxy
+# Derive JWKS URI from issuer (for Azure AD v2.0 tokens)
+# Azure AD JWKS URI format: https://login.microsoftonline.com/{tenant}/discovery/v2.0/keys
+JWKS_URI = os.getenv("JWKS_URI", "")
+if not JWKS_URI and AZURE_TENANT_ID:
+    JWKS_URI = f"https://login.microsoftonline.com/{AZURE_TENANT_ID}/discovery/v2.0/keys"
+
+# Initialize FastMCP
 mcp = FastMCP(
-    "Azure AI Search MCP Server",
-    transport="streamable-http"
+    "Azure AI Search MCP Server"
 )
 
-# Setup JWT verifier for OAuth Proxy
-jwt_verifier = JWTVerifier(
-    issuer=JWT_ISSUER,
-    audience=JWT_AUDIENCE,
-)
+# Global variables for deferred initialization
+jwt_verifier = None
+oauth_proxy = None
+msal_app = None
 
-# Apply OAuth Proxy authentication
-oauth_proxy = OAuthProxy(jwt_verifier=jwt_verifier)
-mcp.use_auth(oauth_proxy)
 
-# Initialize MSAL confidential client for OBO
-msal_app = msal.ConfidentialClientApplication(
-    AZURE_CLIENT_ID,
-    authority=f"https://login.microsoftonline.com/{AZURE_TENANT_ID}",
-    client_credential=AZURE_CLIENT_SECRET,
-)
+def initialize_auth():
+    """Initialize authentication components (JWT verifier, OAuth proxy, MSAL app)."""
+    global jwt_verifier, oauth_proxy, msal_app
+    
+    if jwt_verifier is not None:
+        return  # Already initialized
+    
+    # Setup JWT verifier for OAuth Proxy
+    if JWKS_URI:
+        jwt_verifier = JWTVerifier(
+            jwks_uri=JWKS_URI,
+            issuer=JWT_ISSUER,
+            audience=JWT_AUDIENCE,
+        )
+        
+        # Apply OAuth Proxy authentication
+        oauth_proxy = OAuthProxy(jwt_verifier=jwt_verifier)
+        mcp.use_auth(oauth_proxy)
+    
+    # Initialize MSAL confidential client for OBO
+    if AZURE_CLIENT_ID and AZURE_TENANT_ID:
+        msal_app = msal.ConfidentialClientApplication(
+            AZURE_CLIENT_ID,
+            authority=f"https://login.microsoftonline.com/{AZURE_TENANT_ID}",
+            client_credential=AZURE_CLIENT_SECRET,
+        )
 
 
 def get_obo_token(user_token: str) -> str:
@@ -61,6 +82,11 @@ def get_obo_token(user_token: str) -> str:
     Returns:
         Access token for Azure AI Search
     """
+    initialize_auth()
+    
+    if msal_app is None:
+        raise Exception("MSAL app not initialized. Check AZURE_CLIENT_ID and AZURE_TENANT_ID.")
+    
     result = msal_app.acquire_token_on_behalf_of(
         user_assertion=user_token,
         scopes=["https://search.azure.com/.default"],
@@ -231,13 +257,17 @@ def main():
     if missing_vars:
         raise ValueError(f"Missing required environment variables: {', '.join(missing_vars)}")
     
+    # Initialize authentication components
+    initialize_auth()
+    
     print(f"Starting Azure AI Search MCP Server...")
     print(f"Search Endpoint: {AZURE_SEARCH_ENDPOINT}")
     print(f"Search Index: {AZURE_SEARCH_INDEX}")
     print(f"JWT Issuer: {JWT_ISSUER}")
     print(f"JWT Audience: {JWT_AUDIENCE}")
+    print(f"JWKS URI: {JWKS_URI}")
     
-    mcp.run()
+    mcp.run(transport="streamable-http")
 
 
 if __name__ == "__main__":
