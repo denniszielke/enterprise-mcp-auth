@@ -32,10 +32,26 @@ cd enterprise-mcp-auth
 pip install -r requirements.txt
 ```
 
-3. Configure environment variables:
+3. Set up Azure AD applications:
+
+   **Option A: Automated (Recommended)**
+   ```bash
+   # Create MCP Server app
+   ./scripts/create-server-app.sh
+   
+   # Create MCP Client app
+   ./scripts/create-client-app.sh
+   ```
+   
+   See [scripts/README.md](scripts/README.md) for detailed instructions.
+
+   **Option B: Manual**
+   - Follow the manual configuration steps in [scripts/README.md](scripts/README.md)
+
+4. Configure environment variables:
 ```bash
 cp .env.example .env
-# Edit .env with your Azure credentials
+# Edit .env with values from the app registration scripts
 ```
 
 ## Configuration
