@@ -100,29 +100,26 @@ def get_obo_token(user_token: str) -> str:
         raise Exception(f"OBO token acquisition failed: {error} - {error_desc}")
 
 
-def get_search_client_with_obo(user_token: str) -> SearchClient:
+def get_search_client_with_obo(user_token: str) -> tuple[SearchClient, str]:
     """Create a SearchClient with OBO token for document-level access control.
     
     Args:
         user_token: The user's access token from the incoming request
         
     Returns:
-        SearchClient configured with OBO token
+        Tuple of (SearchClient, OBO token string)
     """
     obo_token = get_obo_token(user_token)
     
     # Create search client with admin key (for connection)
-    # But we'll use OBO token in headers for permission filtering
+    # The OBO token will be used in headers for permission filtering
     search_client = SearchClient(
         endpoint=AZURE_SEARCH_ENDPOINT,
         index_name=AZURE_SEARCH_INDEX,
         credential=AzureKeyCredential(AZURE_SEARCH_ADMIN_KEY),
     )
     
-    # Store OBO token for use in requests
-    search_client._obo_token = obo_token
-    
-    return search_client
+    return search_client, obo_token
 
 
 @mcp.tool()
@@ -143,8 +140,7 @@ async def search_documents(query: str, top: int = 5) -> List[Dict[str, Any]]:
     user_token = oauth_proxy.get_current_token()
     
     # Create search client with OBO token
-    search_client = get_search_client_with_obo(user_token)
-    obo_token = search_client._obo_token
+    search_client, obo_token = get_search_client_with_obo(user_token)
     
     # Perform search with OBO token in header for permission filtering
     results = search_client.search(
@@ -181,8 +177,7 @@ async def get_document(id: str) -> Dict[str, Any]:
     user_token = oauth_proxy.get_current_token()
     
     # Create search client with OBO token
-    search_client = get_search_client_with_obo(user_token)
-    obo_token = search_client._obo_token
+    search_client, obo_token = get_search_client_with_obo(user_token)
     
     # Get document with OBO token in header for permission filtering
     try:
@@ -217,8 +212,7 @@ async def suggest(query: str, top: int = 5) -> List[Dict[str, Any]]:
     user_token = oauth_proxy.get_current_token()
     
     # Create search client with OBO token
-    search_client = get_search_client_with_obo(user_token)
-    obo_token = search_client._obo_token
+    search_client, obo_token = get_search_client_with_obo(user_token)
     
     # Get suggestions with OBO token in header for permission filtering
     results = search_client.suggest(

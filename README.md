@@ -185,10 +185,10 @@ src/enterprise_mcp_auth/
 
 - Python 3.8+
 - fastmcp==2.14.5
-- msal==1.31.1
-- azure-search-documents==11.6.0
-- azure-core==1.32.0
-- python-dotenv==1.0.1
+- msal>=1.31.0
+- azure-search-documents>=11.6.0
+- azure-core>=1.32.0
+- python-dotenv>=1.0.0
 
 ## License
 

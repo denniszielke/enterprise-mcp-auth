@@ -154,11 +154,18 @@ async def list_tools_command(client: Client):
         print(f"Error: {e}")
 
 
-async def run_client(token: str, command: str, **kwargs):
-    """Run the MCP client with specified command."""
+async def run_client(token: str, server_url: str, command: str, **kwargs):
+    """Run the MCP client with specified command.
+    
+    Args:
+        token: OAuth access token for authentication
+        server_url: MCP server URL
+        command: Command to execute
+        **kwargs: Additional command arguments
+    """
     # Create transport with authentication
     transport = StreamableHttpTransport(
-        url=MCP_SERVER_URL,
+        url=server_url,
         headers={"Authorization": f"Bearer {token}"}
     )
     
@@ -260,16 +267,16 @@ Examples:
         print(f"Authentication failed: {e}")
         sys.exit(1)
     
-    # Update server URL if provided via argument
-    global MCP_SERVER_URL
-    MCP_SERVER_URL = args.server_url
+    # Use server URL from argument
+    server_url = args.server_url
     
-    print(f"\nConnecting to MCP server at {MCP_SERVER_URL}...")
+    print(f"\nConnecting to MCP server at {server_url}...")
     
     # Run the client
     try:
         asyncio.run(run_client(
             token=token,
+            server_url=server_url,
             command=args.command,
             query=args.query,
             id=args.id,
