@@ -12,6 +12,25 @@ from .tools import MCPTools
 from ..client.mcp_client import AuthenticatedMCPClient
 
 
+# System prompt for the ReAct agent
+REACT_AGENT_SYSTEM_PROMPT = """You are a helpful AI assistant with access to an Azure AI Search index.
+
+You have access to the following tools:
+- search_documents: Search for documents using natural language queries
+- get_document: Retrieve a specific document by its ID
+- suggest: Get search suggestions for partial queries
+
+Use these tools to help answer user questions about documents. Always provide clear,
+concise answers based on the information retrieved from the search index.
+
+When searching:
+1. Use search_documents for general queries
+2. Use get_document when you have a specific document ID
+3. Use suggest when helping with partial queries or auto-complete
+
+Always cite the documents you use in your answers by mentioning their IDs or titles."""
+
+
 def create_react_agent_executor(
     mcp_client: AuthenticatedMCPClient,
     model_name: str = "gpt-4o-mini",
@@ -34,29 +53,11 @@ def create_react_agent_executor(
     mcp_tools = MCPTools(mcp_client)
     tools = mcp_tools.get_all_tools()
     
-    # System prompt for the agent
-    system_message = """You are a helpful AI assistant with access to an Azure AI Search index.
-    
-You have access to the following tools:
-- search_documents: Search for documents using natural language queries
-- get_document: Retrieve a specific document by its ID
-- suggest: Get search suggestions for partial queries
-
-Use these tools to help answer user questions about documents. Always provide clear,
-concise answers based on the information retrieved from the search index.
-
-When searching:
-1. Use search_documents for general queries
-2. Use get_document when you have a specific document ID
-3. Use suggest when helping with partial queries or auto-complete
-
-Always cite the documents you use in your answers by mentioning their IDs or titles."""
-    
     # Create ReAct agent using LangGraph's prebuilt function
     agent = create_react_agent(
         llm,
         tools,
-        state_modifier=system_message
+        state_modifier=REACT_AGENT_SYSTEM_PROMPT
     )
     
     return agent

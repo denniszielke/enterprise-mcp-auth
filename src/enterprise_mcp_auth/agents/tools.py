@@ -19,10 +19,18 @@ class MCPTools:
             mcp_client: Authenticated MCP client instance
         """
         self.mcp_client = mcp_client
+        
+        # Cache tool instances to avoid recreation
+        self._search_documents_tool = None
+        self._get_document_tool = None
+        self._suggest_tool = None
     
     @property
     def search_documents_tool(self):
         """Create search_documents tool."""
+        if self._search_documents_tool is not None:
+            return self._search_documents_tool
+            
         mcp_client = self.mcp_client
         
         @tool
@@ -43,11 +51,15 @@ class MCPTools:
             result = await mcp_client.search_documents(query=query, top=top)
             return result
         
-        return search_documents
+        self._search_documents_tool = search_documents
+        return self._search_documents_tool
     
     @property
     def get_document_tool(self):
         """Create get_document tool."""
+        if self._get_document_tool is not None:
+            return self._get_document_tool
+            
         mcp_client = self.mcp_client
         
         @tool
@@ -67,11 +79,15 @@ class MCPTools:
             result = await mcp_client.get_document(id=id)
             return result
         
-        return get_document
+        self._get_document_tool = get_document
+        return self._get_document_tool
     
     @property
     def suggest_tool(self):
         """Create suggest tool."""
+        if self._suggest_tool is not None:
+            return self._suggest_tool
+            
         mcp_client = self.mcp_client
         
         @tool
@@ -92,7 +108,8 @@ class MCPTools:
             result = await mcp_client.suggest(query=query, top=top)
             return result
         
-        return suggest
+        self._suggest_tool = suggest
+        return self._suggest_tool
     
     def get_all_tools(self) -> List:
         """Get all MCP tools as a list.
