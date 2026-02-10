@@ -27,7 +27,12 @@ class AgentState(TypedDict):
     """State for the agent graph execution."""
     
     messages: Annotated[Sequence[BaseMessage], add_messages]
-    """Message history for the conversation"""
+    """Message history for the conversation.
+    
+    The add_messages annotation enables automatic message accumulation in the 
+    LangGraph state reducer pattern, allowing messages to be appended rather 
+    than replaced when the state is updated.
+    """
     
     identity: IdentityContext
     """User identity context"""

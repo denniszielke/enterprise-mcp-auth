@@ -60,6 +60,7 @@ def main(query: str, model: str, mcp_url: Optional[str], verbose: bool):
     client_secret = os.getenv('AZURE_CLIENT_SECRET')
     
     # MCP configuration
+    # MCP_BASE_URL is the preferred variable, with MCP_SERVER_URL as fallback for compatibility
     mcp_base_url = mcp_url or os.getenv('MCP_BASE_URL') or os.getenv('MCP_SERVER_URL', 'http://localhost:8000')
     mcp_scope = os.getenv('MCP_SCOPE') or os.getenv('MCP_SERVER_AUDIENCE')
     
