@@ -479,7 +479,7 @@ src/enterprise_mcp_auth/
 - requests>=2.31.0
 - agent-framework-core==1.0.0b260116
 - azure-identity==1.25.1
-- agent-identity-python-sdk
+- agent-identity-python-sdk>=0.1.2
 
 ### LangGraph Architecture
 
