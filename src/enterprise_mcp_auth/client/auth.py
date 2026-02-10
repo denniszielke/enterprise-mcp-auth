@@ -6,6 +6,8 @@ This module provides functions to acquire tokens using device code flow
 
 import os
 import sys
+import base64
+import json
 from typing import Optional
 import msal
 
@@ -140,9 +142,6 @@ def get_user_info_from_token(token: str) -> dict:
     Returns:
         Dictionary with user claims (oid, preferred_username, etc.)
     """
-    import base64
-    import json
-    
     try:
         # JWT tokens have 3 parts separated by dots
         parts = token.split('.')

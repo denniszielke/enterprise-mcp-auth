@@ -4,9 +4,8 @@ This module implements a ReAct (Reasoning and Acting) agent that can use
 MCP tools to search and retrieve documents from Azure AI Search.
 """
 
-from typing import List
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage
 from langgraph.prebuilt import create_react_agent
 from .state import AgentState
 from .tools import MCPTools

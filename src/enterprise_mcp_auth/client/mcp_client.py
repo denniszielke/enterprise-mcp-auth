@@ -4,7 +4,6 @@ This module provides a wrapper around the FastMCP client that automatically
 injects the Authorization header with a bearer token for all requests.
 """
 
-import asyncio
 from typing import Any, Dict, List, Optional
 from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
