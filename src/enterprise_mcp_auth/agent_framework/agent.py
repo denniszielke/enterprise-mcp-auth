@@ -5,6 +5,7 @@ for authentication and agent blueprint for defining capabilities.
 """
 
 import os
+import time
 import logging
 from typing import Optional, Dict, Any, List
 from azure.search.documents import SearchClient
@@ -33,7 +34,6 @@ class TokenCredential:
             AccessToken instance
         """
         # Return a simple token (expires_on is not critical for this use case)
-        import time
         return AccessToken(self.token, int(time.time()) + 3600)
 
 

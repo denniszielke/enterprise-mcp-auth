@@ -7,6 +7,7 @@ Azure AI Search directly without using the MCP server.
 
 import os
 import sys
+import time
 import logging
 import json
 from dotenv import load_dotenv
@@ -35,7 +36,6 @@ class TokenCredential:
     
     def get_token(self, *scopes, **kwargs) -> AccessToken:
         """Get access token."""
-        import time
         return AccessToken(self.token, int(time.time()) + 3600)
 
 
