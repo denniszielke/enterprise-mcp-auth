@@ -8,6 +8,7 @@ This project implements a Model Context Protocol (MCP) server and client for Azu
 
 - **MCP Server**: FastMCP server with OAuth Proxy authentication and On-Behalf-Of (OBO) flow for Azure AI Search
 - **MCP Client**: CLI client with device code flow authentication
+- **LangGraph ReAct Agent**: Multi-agent client using LangGraph for intelligent document search and retrieval
 - **Ingestion Tool**: Creates Azure AI Search index with permission filtering and uploads sample documents
 
 ## Features
@@ -18,6 +19,8 @@ This project implements a Model Context Protocol (MCP) server and client for Azu
 - ✅ Three MCP tools: `search_documents`, `get_document`, `suggest`
 - ✅ Permission filtering with USER_IDS (`oid` field) and GROUP_IDS (`group` field)
 - ✅ Search suggester support
+- ✅ LangGraph ReAct agent for intelligent query processing
+- ✅ Supervisor graph with identity validation and MCP client management
 
 ## Installation
 
@@ -30,6 +33,9 @@ cd enterprise-mcp-auth
 2. Install dependencies:
 ```bash
 pip install -r requirements.txt
+
+# Or install the package in development mode
+pip install -e .
 ```
 
 3. Set up Azure AD applications:
@@ -73,9 +79,12 @@ AZURE_TENANT_ID=your-tenant-id
 JWT_ISSUER=https://login.microsoftonline.com/your-tenant-id/v2.0
 JWT_AUDIENCE=api://your-client-id
 
-# MCP Server Configuration (for client)
-MCP_SERVER_URL=http://localhost:8000
-MCP_SERVER_AUDIENCE=api://your-server-client-id/.default
+# MCP Client Configuration
+MCP_BASE_URL=http://localhost:8000
+MCP_SCOPE=api://your-server-client-id/.default
+
+# OpenAI Configuration (for LangGraph agents)
+OPENAI_API_KEY=your-openai-api-key
 ```
 
 ## Usage
@@ -130,6 +139,65 @@ The client will:
 - Acquire a token for the MCP server audience
 - Execute the requested tool via the MCP server
 
+### 4. Use the LangGraph ReAct Agent
+
+For intelligent query processing with natural language, use the LangGraph ReAct agent:
+
+```bash
+# After installing with pip install -e .
+mcp-agent "What documents mention security policies?"
+
+# Or run directly with Python
+python -m enterprise_mcp_auth.cli "What documents mention security policies?"
+
+# Use verbose mode to see reasoning steps
+mcp-agent "Find documents about authentication" --verbose
+
+# Specify a different OpenAI model
+mcp-agent "Search for compliance documents" --model gpt-4
+```
+
+The LangGraph agent will:
+- Authenticate using device code flow (or client credentials if `AZURE_CLIENT_SECRET` is set)
+- Create a ReAct agent with access to MCP tools
+- Process your natural language query
+- Automatically call appropriate tools (search, get, suggest)
+- Return a comprehensive answer based on retrieved documents
+
+**Example interaction:**
+
+```bash
+$ mcp-agent "What are the security policies mentioned in the documents?"
+
+🤖 LangGraph ReAct Agent for Azure AI Search
+============================================================
+
+🔐 Acquiring access token...
+   Tenant: your-tenant-id
+   Client: your-client-id
+   Scope:  api://your-server-client-id/.default
+To sign in, use a web browser to open the page https://microsoft.com/devicelogin and enter the code XXXXXXXXX to authenticate.
+✓ Token acquired for user: user@example.com
+
+🔍 Query: What are the security policies mentioned in the documents?
+🌐 MCP Server: http://localhost:8000
+🤖 Model: gpt-4o-mini
+
+============================================================
+
+📝 Response:
+
+Based on the search results, here are the security policies mentioned in the documents:
+
+1. **Document Security Policy (doc1)**: This document outlines general security guidelines...
+2. **Access Control Policy (doc3)**: Details the access control mechanisms...
+
+These documents provide comprehensive security guidelines for the organization.
+
+============================================================
+✓ Query completed successfully
+```
+
 ## Architecture
 
 ### Permission Filtering
@@ -183,6 +251,7 @@ The system enforces document-level access control through:
 ```
 src/enterprise_mcp_auth/
 ├── __init__.py
+├── cli.py                    # LangGraph ReAct agent CLI
 ├── server/
 │   ├── __init__.py
 │   ├── __main__.py
@@ -190,7 +259,15 @@ src/enterprise_mcp_auth/
 ├── client/
 │   ├── __init__.py
 │   ├── __main__.py
-│   └── ai_search_mcp_client.py
+│   ├── ai_search_mcp_client.py  # Basic MCP client
+│   ├── auth.py                   # MSAL authentication (device code + confidential)
+│   └── mcp_client.py            # Authenticated MCP client wrapper
+├── agents/
+│   ├── __init__.py
+│   ├── state.py                 # Graph state definitions
+│   ├── tools.py                 # LangChain tool wrappers
+│   ├── react_agent.py           # ReAct agent implementation
+│   └── supervisor.py            # Supervisor graph
 └── ingestion/
     ├── __init__.py
     ├── __main__.py
@@ -205,6 +282,45 @@ src/enterprise_mcp_auth/
 - azure-search-documents>=11.6.0
 - azure-core>=1.32.0
 - python-dotenv>=1.0.0
+- langgraph>=0.2.0
+- langchain-openai>=0.2.0
+- langchain-core>=0.3.0
+- click>=8.1.0
+- requests>=2.31.0
+
+### LangGraph Architecture
+
+The LangGraph ReAct agent implementation follows this architecture:
+
+```
+User Query
+    ↓
+Supervisor Graph
+    ↓
+1. Identity Validation
+   - Check identity context exists
+   - Validate access token
+    ↓
+2. ReAct Agent Node
+   - Create authenticated MCP client
+   - Initialize ReAct agent with MCP tools
+   - Process query using reasoning + action loop
+    ↓
+3. Tool Execution
+   - search_documents: Search index
+   - get_document: Retrieve by ID
+   - suggest: Get suggestions
+    ↓
+Response
+```
+
+**Key Components:**
+
+- **IdentityContext**: Carries user identity and access token through the graph
+- **AgentState**: Complete state including messages, identity, query, and MCP URL
+- **MCPTools**: LangChain tool wrappers for MCP server tools
+- **ReAct Agent**: Uses LangGraph's `create_react_agent` with OpenAI LLM
+- **Supervisor**: Orchestrates identity validation and agent execution
 
 ## License
 
