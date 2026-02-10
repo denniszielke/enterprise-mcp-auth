@@ -33,6 +33,9 @@ cd enterprise-mcp-auth
 2. Install dependencies:
 ```bash
 pip install -r requirements.txt
+
+# Or install the package in development mode
+pip install -e .
 ```
 
 3. Set up Azure AD applications:
@@ -141,17 +144,17 @@ The client will:
 For intelligent query processing with natural language, use the LangGraph ReAct agent:
 
 ```bash
-# Set PYTHONPATH to include src directory
-export PYTHONPATH=/path/to/enterprise-mcp-auth/src:$PYTHONPATH
+# After installing with pip install -e .
+mcp-agent "What documents mention security policies?"
 
-# Run a query
+# Or run directly with Python
 python -m enterprise_mcp_auth.cli "What documents mention security policies?"
 
 # Use verbose mode to see reasoning steps
-python -m enterprise_mcp_auth.cli "Find documents about authentication" --verbose
+mcp-agent "Find documents about authentication" --verbose
 
 # Specify a different OpenAI model
-python -m enterprise_mcp_auth.cli "Search for compliance documents" --model gpt-4
+mcp-agent "Search for compliance documents" --model gpt-4
 ```
 
 The LangGraph agent will:
@@ -164,7 +167,7 @@ The LangGraph agent will:
 **Example interaction:**
 
 ```bash
-$ python -m enterprise_mcp_auth.cli "What are the security policies mentioned in the documents?"
+$ mcp-agent "What are the security policies mentioned in the documents?"
 
 🤖 LangGraph ReAct Agent for Azure AI Search
 ============================================================
