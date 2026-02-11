@@ -1,74 +1,21 @@
-"""Azure AI Search MCP Client with device code flow authentication.
+"""Azure AI Search MCP Client with FastMCP OAuth authentication.
 
-This module implements a CLI client that authenticates using device code flow
-and connects to the Azure AI Search MCP server.
+This module implements a CLI client that connects to the Azure AI Search MCP
+server using FastMCP's built-in OAuth flow (browser-based authorization).
 """
 
 import os
 import sys
 import argparse
 import asyncio
-from typing import Optional
 from dotenv import load_dotenv
-import msal
 from fastmcp import Client
-from fastmcp.client.transports import StreamableHttpTransport
 
 # Load environment variables
 load_dotenv()
 
 # Environment variables
-AZURE_CLIENT_ID = os.getenv("AZURE_CLIENT_ID", "")
-AZURE_TENANT_ID = os.getenv("AZURE_TENANT_ID", "")
-MCP_SERVER_URL = os.getenv("MCP_SERVER_URL", "http://localhost:8000")
-MCP_SERVER_AUDIENCE = os.getenv("MCP_SERVER_AUDIENCE", "")
-
-
-def acquire_token_via_device_code(client_id: str, tenant_id: str, scopes: list) -> str:
-    """Acquire access token using device code flow.
-    
-    Args:
-        client_id: Azure AD client ID
-        tenant_id: Azure AD tenant ID
-        scopes: List of OAuth scopes to request
-        
-    Returns:
-        Access token string
-    """
-    app = msal.PublicClientApplication(
-        client_id,
-        authority=f"https://login.microsoftonline.com/{tenant_id}",
-    )
-    
-    # Check if we have a cached token
-    accounts = app.get_accounts()
-    if accounts:
-        result = app.acquire_token_silent(scopes, account=accounts[0])
-        if result and "access_token" in result:
-            print("Token acquired from cache")
-            return result["access_token"]
-    
-    # Initiate device code flow
-    flow = app.initiate_device_flow(scopes=scopes)
-    
-    if "user_code" not in flow:
-        raise ValueError(
-            f"Failed to create device flow: {flow.get('error_description', 'Unknown error')}"
-        )
-    
-    print(flow["message"])
-    sys.stdout.flush()
-    
-    # Wait for the user to authenticate
-    result = app.acquire_token_by_device_flow(flow)
-    
-    if "access_token" in result:
-        print("Authentication successful!")
-        return result["access_token"]
-    else:
-        error = result.get("error", "unknown_error")
-        error_desc = result.get("error_description", "Failed to acquire token")
-        raise Exception(f"Authentication failed: {error} - {error_desc}")
+MCP_SERVER_URL = os.getenv("MCP_SERVER_URL", "http://localhost:8000/mcp")
 
 
 async def search_documents_command(client: Client, query: str, top: int):
@@ -77,7 +24,7 @@ async def search_documents_command(client: Client, query: str, top: int):
     print("-" * 60)
     
     try:
-        result = await client.call_tool("search_documents", query=query, top=top)
+        result = await client.call_tool("search_documents", {"query": query, "top": top})
         
         if not result:
             print("No results found.")
@@ -97,7 +44,7 @@ async def get_document_command(client: Client, doc_id: str):
     print("-" * 60)
     
     try:
-        result = await client.call_tool("get_document", id=doc_id)
+        result = await client.call_tool("get_document", {"id": doc_id})
         
         if "error" in result:
             print(f"Error: {result['error']}")
@@ -116,7 +63,7 @@ async def suggest_command(client: Client, query: str, top: int):
     print("-" * 60)
     
     try:
-        result = await client.call_tool("suggest", query=query, top=top)
+        result = await client.call_tool("suggest", {"query": query, "top": top})
         
         if not result:
             print("No suggestions found.")
@@ -154,23 +101,16 @@ async def list_tools_command(client: Client):
         print(f"Error: {e}")
 
 
-async def run_client(token: str, server_url: str, command: str, **kwargs):
+async def run_client(server_url: str, command: str, **kwargs):
     """Run the MCP client with specified command.
     
     Args:
-        token: OAuth access token for authentication
         server_url: MCP server URL
         command: Command to execute
         **kwargs: Additional command arguments
     """
-    # Create transport with authentication
-    transport = StreamableHttpTransport(
-        url=server_url,
-        headers={"Authorization": f"Bearer {token}"}
-    )
-    
-    # Create client
-    async with Client(transport=transport) as client:
+    # Use FastMCP's built-in OAuth flow (browser-based)
+    async with Client(server_url, auth="oauth") as client:
         if command == "search":
             await search_documents_command(client, kwargs.get("query"), kwargs.get("top", 5))
         elif command == "get":
@@ -226,7 +166,7 @@ Examples:
     )
     parser.add_argument(
         "--server-url",
-        default=os.getenv("MCP_SERVER_URL", "http://localhost:8000"),
+        default=os.getenv("MCP_SERVER_URL", "http://localhost:8000/mcp"),
         help="MCP server URL"
     )
     
@@ -240,42 +180,19 @@ Examples:
     if args.command == "suggest" and not args.query:
         parser.error("--query is required for suggest command")
     
-    # Validate required environment variables
-    if not AZURE_CLIENT_ID:
-        print("Error: AZURE_CLIENT_ID environment variable is required")
-        sys.exit(1)
-    if not AZURE_TENANT_ID:
-        print("Error: AZURE_TENANT_ID environment variable is required")
-        sys.exit(1)
-    
-    # Determine scope
-    if MCP_SERVER_AUDIENCE:
-        scopes = [MCP_SERVER_AUDIENCE]
-    else:
-        # Default scope pattern
-        scopes = [f"api://{AZURE_CLIENT_ID}/.default"]
-    
-    print(f"Authenticating to Azure AD...")
-    print(f"Client ID: {AZURE_CLIENT_ID}")
-    print(f"Tenant ID: {AZURE_TENANT_ID}")
-    print(f"Scope: {scopes[0]}")
-    
-    # Acquire token via device code flow
-    try:
-        token = acquire_token_via_device_code(AZURE_CLIENT_ID, AZURE_TENANT_ID, scopes)
-    except Exception as e:
-        print(f"Authentication failed: {e}")
-        sys.exit(1)
-    
     # Use server URL from argument
     server_url = args.server_url
+
+    # Fix common configuration error where /mcp is missing for FastMCP StreamableHttpTransport
+    if server_url.rstrip("/") == "http://localhost:8000":
+        server_url = "http://localhost:8000/mcp"
     
-    print(f"\nConnecting to MCP server at {server_url}...")
+    print(f"Connecting to MCP server at {server_url}...")
+    print("(Your browser will open for authentication if needed)")
     
     # Run the client
     try:
         asyncio.run(run_client(
-            token=token,
             server_url=server_url,
             command=args.command,
             query=args.query,

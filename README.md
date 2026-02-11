@@ -6,17 +6,17 @@ Enterprise MCP Auth with Azure AI Search MCP server/client and ingestion app.
 
 This project implements a Model Context Protocol (MCP) server and client for Azure AI Search with OAuth authentication and document-level permission filtering. It includes:
 
-- **MCP Server**: FastMCP server with OAuth Proxy authentication and On-Behalf-Of (OBO) flow for Azure AI Search
-- **MCP Client**: CLI client with device code flow authentication
+- **MCP Server**: FastMCP server with Azure (Entra ID) OAuth via `AzureProvider` and On-Behalf-Of (OBO) flow for Azure AI Search
+- **MCP Client**: CLI client using FastMCP's built-in OAuth flow (browser-based)
 - **LangGraph ReAct Agent**: Multi-agent client using LangGraph for intelligent document search and retrieval
 - **Ingestion Tool**: Creates Azure AI Search index with permission filtering and uploads sample documents
 
 ## Features
 
-- ✅ OAuth Proxy authentication with JWT verification
+- ✅ Azure AD (Entra ID) OAuth authentication via FastMCP `AzureProvider`
 - ✅ On-Behalf-Of (OBO) token flow for Azure AI Search
-- ✅ Document-level access control via `x-ms-query-source-authorization` header
-- ✅ Three MCP tools: `search_documents`, `get_document`, `suggest`
+- ✅ Document-level access control via `x_ms_query_source_authorization`
+- ✅ Four MCP tools: `search_documents`, `get_document`, `suggest`, `get_user_info`
 - ✅ Permission filtering with USER_IDS (`oid` field) and GROUP_IDS (`group` field)
 - ✅ Search suggester support
 - ✅ LangGraph ReAct agent for intelligent query processing
@@ -70,21 +70,18 @@ AZURE_SEARCH_ENDPOINT=https://your-search-service.search.windows.net
 AZURE_SEARCH_INDEX=documents
 AZURE_SEARCH_ADMIN_KEY=your-admin-key
 
-# Azure AD Configuration
-AZURE_CLIENT_ID=your-client-id
-AZURE_CLIENT_SECRET=your-client-secret
+# Azure AD Configuration (server app registration)
+AZURE_CLIENT_ID=your-server-app-client-id
+AZURE_CLIENT_SECRET=your-server-app-client-secret
 AZURE_TENANT_ID=your-tenant-id
 
-# JWT Configuration (for server)
-JWT_ISSUER=https://login.microsoftonline.com/your-tenant-id/v2.0
-JWT_AUDIENCE=api://your-client-id
-
 # MCP Client Configuration
-MCP_BASE_URL=http://localhost:8000
-MCP_SCOPE=api://your-server-client-id/.default
+MCP_SERVER_URL=http://localhost:8000/mcp
 
-# OpenAI Configuration (for LangGraph agents)
-OPENAI_API_KEY=your-openai-api-key
+# LangGraph CLI Agent (optional)
+# MCP_BASE_URL=http://localhost:8000
+# MCP_SCOPE=api://your-server-client-id/.default
+# OPENAI_API_KEY=your-openai-api-key
 ```
 
 ## Usage
@@ -104,7 +101,7 @@ This will:
 
 ### 2. Start the MCP Server
 
-Start the MCP server with OAuth Proxy authentication:
+Start the MCP server with AzureProvider OAuth authentication:
 
 ```bash
 python -m enterprise_mcp_auth.server.ai_search_mcp_server
@@ -112,7 +109,7 @@ python -m enterprise_mcp_auth.server.ai_search_mcp_server
 
 The server will:
 - Listen on port 8000 (default)
-- Enforce JWT authentication
+- Use FastMCP `AzureProvider` for Azure AD OAuth (handles authorization code flow via browser)
 - Use OBO flow to acquire Azure AI Search tokens
 - Apply document-level permission filtering
 
@@ -135,8 +132,8 @@ python -m enterprise_mcp_auth.client.ai_search_mcp_client suggest --query "sec" 
 ```
 
 The client will:
-- Prompt for device code authentication
-- Acquire a token for the MCP server audience
+- Use FastMCP's built-in OAuth flow (`auth="oauth"`) which opens your browser for Azure AD authentication
+- Automatically handle token acquisition, caching, and refresh
 - Execute the requested tool via the MCP server
 
 ### 4. Use the LangGraph ReAct Agent
@@ -208,14 +205,14 @@ The system enforces document-level access control through:
    - `oid`: Collection of user IDs (USER_IDS permission filter)
    - `group`: Collection of group IDs (GROUP_IDS permission filter)
 
-2. **OBO Token Flow**:
-   - Client authenticates with Azure AD
-   - MCP server receives client token
-   - Server uses OBO to get Azure AI Search token
+2. **OAuth + OBO Token Flow**:
+   - Client authenticates via browser-based Azure AD OAuth (managed by FastMCP `AzureProvider`)
+   - MCP server receives the upstream Azure AD token
+   - Server uses OBO to exchange it for an Azure AI Search token
    - Token contains user/group claims
 
 3. **Query-Time Filtering**:
-   - Server sets `x-ms-query-source-authorization` header
+   - Server passes OBO token via `x_ms_query_source_authorization` parameter
    - Azure AI Search filters results based on token claims
    - Only documents matching user's `oid` or `group` are returned
 
@@ -236,10 +233,14 @@ The system enforces document-level access control through:
    - Returns top N suggestions
    - Applies permission filtering
 
+4. **get_user_info()**
+   - Returns information about the authenticated Azure user
+   - Extracts claims from the access token (sub, email, name, etc.)
+
 ## Security
 
-- OAuth 2.0 authentication required for all operations
-- JWT token verification on MCP server
+- Azure AD OAuth 2.0 via FastMCP `AzureProvider` for all operations
+- AzureProvider handles token issuance and verification internally
 - On-Behalf-Of flow ensures user context is preserved
 - Document-level access control enforced by Azure AI Search
 - No direct admin key exposure to clients
@@ -417,7 +418,7 @@ Search / Retrieve Documents
 - Ideal for background tasks and automation
 
 **User Identity (Existing)**:
-- Uses device code flow or client credentials
+- Uses browser-based OAuth flow via FastMCP `AzureProvider`
 - Requires user authentication
 - Uses On-Behalf-Of (OBO) flow through MCP server
 - Document-level access control based on user claims
@@ -444,9 +445,9 @@ src/enterprise_mcp_auth/
 ├── client/
 │   ├── __init__.py
 │   ├── __main__.py
-│   ├── ai_search_mcp_client.py  # Basic MCP client
-│   ├── auth.py                   # MSAL authentication (device code + confidential)
-│   └── mcp_client.py            # Authenticated MCP client wrapper
+│   ├── ai_search_mcp_client.py  # MCP client (uses FastMCP built-in OAuth)
+│   ├── auth.py                   # MSAL authentication helpers (used by LangGraph agent)
+│   └── mcp_client.py            # Authenticated MCP client wrapper (used by LangGraph agent)
 ├── agents/
 │   ├── __init__.py
 │   ├── state.py                 # Graph state definitions
@@ -503,6 +504,7 @@ Supervisor Graph
    - search_documents: Search index
    - get_document: Retrieve by ID
    - suggest: Get suggestions
+   - get_user_info: Get authenticated user info
     ↓
 Response
 ```

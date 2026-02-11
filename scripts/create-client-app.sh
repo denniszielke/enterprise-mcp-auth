@@ -78,9 +78,15 @@ echo "  Client ID: ${CLIENT_ID}"
 echo "  Object ID: ${APP_OBJECT_ID}"
 echo ""
 
+# Update accessTokenAcceptedVersion to 2
+echo "Updating accessTokenAcceptedVersion to 2..."
+az ad app update --id ${CLIENT_ID} --set api.requestedAccessTokenVersion=2
+echo -e "${GREEN}✓ Access token version updated to 2${NC}"
+echo ""
+
 # Enable public client flow
 echo "Enabling public client flow..."
-az ad app update --id ${CLIENT_ID} --set publicClient.redirectUris='["http://localhost"]'
+# Note: publicClient.redirectUris is already set by --public-client-redirect-uris in create command
 az ad app update --id ${CLIENT_ID} --set isFallbackPublicClient=true
 
 echo -e "${GREEN}✓ Public client flow enabled${NC}"
@@ -141,7 +147,7 @@ echo ""
 echo "Add/update the following in your .env file:"
 echo ""
 echo "# Azure AD Configuration (use same tenant)"
-echo "AZURE_CLIENT_ID=${CLIENT_ID}"
+echo "MCP_CLIENT_APP_ID=${CLIENT_ID}"
 echo "AZURE_TENANT_ID=${AZURE_TENANT_ID}"
 echo ""
 echo "# MCP Server Configuration"

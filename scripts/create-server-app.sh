@@ -49,10 +49,11 @@ APP_NAME=${APP_NAME:-mcp-server}
 echo ""
 echo "Creating MCP Server application: ${APP_NAME}..."
 
-# Create the application
+# Create the application with web redirect URI for OAuth callback
 APP_JSON=$(az ad app create \
     --display-name "${APP_NAME}" \
-    --sign-in-audience AzureADMyOrg)
+    --sign-in-audience AzureADMyOrg \
+    --web-redirect-uris "http://localhost:8000/auth/callback")
 
 AZURE_CLIENT_ID=$(echo $APP_JSON | jq -r '.appId')
 APP_OBJECT_ID=$(echo $APP_JSON | jq -r '.id')
@@ -60,6 +61,12 @@ APP_OBJECT_ID=$(echo $APP_JSON | jq -r '.id')
 echo -e "${GREEN}✓ Application created${NC}"
 echo "  Client ID: ${AZURE_CLIENT_ID}"
 echo "  Object ID: ${APP_OBJECT_ID}"
+echo ""
+
+# Update accessTokenAcceptedVersion to 2
+echo "Updating accessTokenAcceptedVersion to 2..."
+az ad app update --id ${AZURE_CLIENT_ID} --set api.requestedAccessTokenVersion=2
+echo -e "${GREEN}✓ Access token version updated to 2${NC}"
 echo ""
 
 # Create service principal
@@ -105,7 +112,9 @@ OAUTH2_PERMISSIONS=$(cat <<EOF
 EOF
 )
 
-az ad app update --id ${AZURE_CLIENT_ID} --set api.oauth2PermissionScopes="${OAUTH2_PERMISSIONS}"
+# Wrap permissions in api object to avoid "Couldn't find 'api' in ''" error
+API_PAYLOAD=$(echo "${OAUTH2_PERMISSIONS}" | jq -c '{oauth2PermissionScopes: .}')
+az ad app update --id ${AZURE_CLIENT_ID} --set api="${API_PAYLOAD}"
 
 echo -e "${GREEN}✓ API exposed with scope: ${APP_ID_URI}/user_impersonation${NC}"
 echo ""
@@ -114,8 +123,9 @@ echo ""
 echo "Adding API permissions for Azure AI Search..."
 
 # Azure AI Search Resource ID (Microsoft.Azure.Search)
-SEARCH_APP_ID="7ca7af45-6e4b-4a5e-9d6a-45c7a5c7d6a3"
-SEARCH_SCOPE_ID="c1db5e50-e53e-4e28-9b25-72f94c8c8a3e"  # user_impersonation scope
+# Using the App ID for "Azure Cognitive Search" explicitly found in tenant (https://search.azure.com)
+SEARCH_APP_ID="880da380-985e-4198-81b9-e05b1cc53158"
+SEARCH_SCOPE_ID="a4165a31-5d9e-4120-bd1e-9d88c66fd3b8"  # user_impersonation scope
 
 az ad app permission add \
     --id ${AZURE_CLIENT_ID} \
