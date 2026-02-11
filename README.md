@@ -244,6 +244,191 @@ The system enforces document-level access control through:
 - Document-level access control enforced by Azure AI Search
 - No direct admin key exposure to clients
 
+## Agent Framework Integration
+
+The repository now includes support for Agent Framework with Agent Identity authentication. This allows agents to authenticate directly to Azure services using agent identities instead of user credentials.
+
+### Agent Framework Features
+
+- ✅ Agent identity creation and management using Agent Identity Python SDK
+- ✅ Agent blueprint definition using Agent Framework Core
+- ✅ Direct Azure AI Search authentication (bypassing MCP server)
+- ✅ Token-based authentication for Azure services
+- ✅ Comprehensive error handling and logging
+
+### Agent Framework Components
+
+The agent framework is organized in the `src/enterprise_mcp_auth/agent_framework/` directory:
+
+- **agent_identity.py**: Manages agent identity creation and token acquisition
+- **agent_blueprint.py**: Defines agent blueprints with capabilities
+- **agent.py**: Main agent implementation with Azure AI Search integration
+
+### Agent Framework Configuration
+
+Add the following environment variables to your `.env` file:
+
+```env
+# Agent Framework Configuration
+AGENT_IDENTITY_CLIENT_ID=your-agent-identity-client-id
+AGENT_IDENTITY_TENANT_ID=your-agent-identity-tenant-id
+AGENT_IDENTITY_AUDIENCE=https://search.azure.com/.default
+AGENT_BLUEPRINT_NAME=enterprise-blueprint
+AGENT_NAME=enterprise-agent
+```
+
+### Agent Framework Usage
+
+#### 1. Setup Agent Identity
+
+Create an agent identity for authentication:
+
+```bash
+python scripts/agent/setup_agent_identity.py
+```
+
+This script:
+- Initializes the agent identity manager
+- Validates identity configuration
+- Creates an agent identity with the specified name
+- Associates it with a blueprint
+
+#### 2. Setup Agent Blueprint
+
+Define an agent blueprint with capabilities:
+
+```bash
+python scripts/agent/setup_agent_blueprint.py
+```
+
+This script:
+- Creates an agent blueprint
+- Defines capabilities (search_documents, retrieve_document, authenticate_to_azure)
+- Validates the blueprint configuration
+
+#### 3. Run Agent
+
+Execute the agent with authentication:
+
+```bash
+# Run with default search query
+python scripts/agent/run_agent.py
+
+# Run with custom search query
+python scripts/agent/run_agent.py "security policies"
+```
+
+The agent will:
+- Authenticate using agent identity
+- Connect to Azure AI Search
+- Execute the search query
+- Display results with document details
+
+#### 4. Test Direct Azure AI Search Access
+
+Test direct authentication to Azure AI Search without using the MCP server:
+
+```bash
+# Test with default query
+python scripts/agent/test_ai_search_direct.py
+
+# Test with custom query
+python scripts/agent/test_ai_search_direct.py "compliance"
+```
+
+This script demonstrates:
+- Direct Azure AI Search authentication using agent identity
+- Token acquisition for Azure AI Search
+- Document search and retrieval
+- Bypassing the MCP server for direct API access
+
+**Example output:**
+
+```bash
+$ python scripts/agent/test_ai_search_direct.py "security"
+
+============================================================
+Direct Azure AI Search Test with Agent Identity
+============================================================
+
+Endpoint: https://your-search-service.search.windows.net
+Index: documents
+Search Query: security
+
+Initializing Agent Identity Manager...
+✓ Tenant ID: your-tenant-id
+✓ Client ID: your-client-id
+
+Acquiring access token for Azure AI Search...
+✓ Token acquired (length: 1234)
+
+Creating Azure Search client for index: documents...
+✓ Search client created
+
+Searching for: 'security'...
+✓ Found 3 documents
+
+Search Results:
+------------------------------------------------------------
+
+1. Document ID: doc1
+   Title: Document Security Policy
+   Content: This document outlines security guidelines...
+   Score: 2.4567
+
+2. Document ID: doc3
+   Title: Access Control Policy
+   Content: Details about access control mechanisms...
+   Score: 1.8901
+
+============================================================
+Test completed successfully!
+============================================================
+```
+
+### Agent Framework Architecture
+
+```
+Agent Identity
+    ↓
+Agent Blueprint
+    ↓
+Enterprise Agent
+    ↓
+Azure AI Search Client (Direct Auth)
+    ↓
+Search / Retrieve Documents
+```
+
+**Key Components:**
+
+- **AgentIdentityManager**: Manages agent identity and token acquisition
+- **AgentBlueprintManager**: Defines agent capabilities and configuration
+- **EnterpriseAgent**: Main agent implementation with Azure AI Search integration
+- **TokenCredential**: Simple credential adapter for Azure SDK
+
+### Agent Identity vs User Identity
+
+**Agent Identity (New)**:
+- Uses service principal or managed identity
+- Suitable for automated agents and services
+- Direct authentication to Azure services
+- No user interaction required
+- Ideal for background tasks and automation
+
+**User Identity (Existing)**:
+- Uses device code flow or client credentials
+- Requires user authentication
+- Uses On-Behalf-Of (OBO) flow through MCP server
+- Document-level access control based on user claims
+- Ideal for interactive applications
+
+### Agent Framework References
+
+- [Agent Blueprint Documentation](https://learn.microsoft.com/en-us/entra/agent-id/identity-platform/agent-blueprint)
+- [Agent Identities Samples](https://github.com/Azure-Samples/ms-identity-agent-identities)
+- [Agent Identity Python SDK](https://pypi.org/project/agent-identity-python-sdk/)
+
 ## Development
 
 ### Project Structure
@@ -268,6 +453,11 @@ src/enterprise_mcp_auth/
 │   ├── tools.py                 # LangChain tool wrappers
 │   ├── react_agent.py           # ReAct agent implementation
 │   └── supervisor.py            # Supervisor graph
+├── agent_framework/
+│   ├── __init__.py
+│   ├── agent_identity.py        # Agent identity management
+│   ├── agent_blueprint.py       # Agent blueprint definition
+│   └── agent.py                 # Main agent implementation
 └── ingestion/
     ├── __init__.py
     ├── __main__.py
@@ -287,6 +477,9 @@ src/enterprise_mcp_auth/
 - langchain-core>=0.3.0
 - click>=8.1.0
 - requests>=2.31.0
+- agent-framework-core==1.0.0b260116
+- azure-identity==1.25.1
+- agent-identity-python-sdk>=0.1.2
 
 ### LangGraph Architecture
 
