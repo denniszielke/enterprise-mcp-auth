@@ -11,9 +11,8 @@ import base64
 import logging
 from typing import Any, Dict, List, Optional
 from dotenv import load_dotenv
-import time
 import msal
-from azure.core.credentials import AzureKeyCredential, AccessToken
+from azure.core.credentials import AzureKeyCredential
 from azure.search.documents import SearchClient
 from fastmcp import FastMCP
 from fastmcp.server.auth.providers.azure import AzureProvider
@@ -25,6 +24,7 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+logging.getLogger('azure.core.pipeline.policies.http_logging_policy').setLevel(logging.WARNING)
 
 # Load environment variables
 load_dotenv()
@@ -149,17 +149,6 @@ def get_obo_token(user_token: str) -> str:
         raise Exception(f"OBO token acquisition failed: {error}: {error_desc}")
 
 
-class _StaticTokenCredential:
-    """A TokenCredential that wraps a pre-existing access token string."""
-
-    def __init__(self, token: str):
-        self._token = token
-
-    def get_token(self, *scopes, **kwargs) -> AccessToken:
-        # Token is short-lived and request-scoped; expire in 5 min.
-        return AccessToken(self._token, int(time.time()) + 300)
-
-
 def get_search_client_with_obo(user_token: str) -> tuple[SearchClient, str]:
     """Create a SearchClient with OBO token for document-level access control.
     
@@ -171,13 +160,12 @@ def get_search_client_with_obo(user_token: str) -> tuple[SearchClient, str]:
     """
     obo_token = get_obo_token(user_token)
     
-    # ACL enforcement requires Bearer-token auth (RBAC) in the Authorization
-    # header, not an API key.  We use the OBO token so the SearchClient
-    # authenticates as the calling user.
+    # Use admin key credential for the SearchClient, and pass the OBO token
+    # via x_ms_query_source_authorization to enforce document-level ACLs.
     search_client = SearchClient(
         endpoint=AZURE_SEARCH_ENDPOINT,
         index_name=AZURE_SEARCH_INDEX,
-        credential=_StaticTokenCredential(obo_token),
+        credential=AzureKeyCredential(AZURE_SEARCH_ADMIN_KEY),
     )
     
     return search_client, obo_token
@@ -210,7 +198,7 @@ async def search_documents(query: str, top: int = 5) -> List[Dict[str, Any]]:
     results = search_client.search(
         search_text=query,
         top=top,
-        x_ms_query_source_authorization=f"Bearer {obo_token}",
+        x_ms_query_source_authorization=obo_token,
     )
     
     # Convert results to JSON-serializable format
@@ -248,7 +236,7 @@ async def get_document(id: str) -> Dict[str, Any]:
     try:
         document = search_client.get_document(
             key=id,
-            x_ms_query_source_authorization=f"Bearer {obo_token}",
+            x_ms_query_source_authorization=obo_token,
         )
         
         # Convert to JSON-serializable format
@@ -285,7 +273,7 @@ async def suggest(query: str, top: int = 5) -> List[Dict[str, Any]]:
         search_text=query,
         suggester_name="sg",
         top=top,
-        x_ms_query_source_authorization=f"Bearer {obo_token}",
+        x_ms_query_source_authorization=obo_token,
     )
     
     # Convert results to JSON-serializable format

@@ -91,13 +91,14 @@ MCP_SERVER_URL=http://localhost:8000/mcp
 First, create the Azure AI Search index with permission filtering and upload sample documents:
 
 ```bash
-python -m enterprise_mcp_auth.ingestion.create_index_and_documents
+python -m ai_search_ingestion.create_index_and_documents
 ```
 
 This will:
 - Create an index named `documents` with permission filtering fields
 - Add a suggester named `sg`
-- Upload 8 sample documents with various permission settings
+- Upload 8 sample documents
+- Inject the current Azure CLI user ID, `AI_SEARCH_QUERY_USER_ID`, and `AI_SEARCH_QUERY_GROUP_ID` into every document's `oid`/`group` fields
 
 ### 2. Start the MCP Server
 
@@ -435,7 +436,7 @@ Search / Retrieve Documents
 ### Project Structure
 
 ```
-src/enterprise_mcp_auth/
+enterprise_mcp_auth/
 ├── __init__.py
 ├── cli.py                    # LangGraph ReAct agent CLI
 ├── server/
@@ -454,15 +455,16 @@ src/enterprise_mcp_auth/
 │   ├── tools.py                 # LangChain tool wrappers
 │   ├── react_agent.py           # ReAct agent implementation
 │   └── supervisor.py            # Supervisor graph
-├── agent_framework/
-│   ├── __init__.py
-│   ├── agent_identity.py        # Agent identity management
-│   ├── agent_blueprint.py       # Agent blueprint definition
-│   └── agent.py                 # Main agent implementation
-└── ingestion/
+└── agent_framework/
     ├── __init__.py
-    ├── __main__.py
-    └── create_index_and_documents.py
+    ├── agent_identity.py        # Agent identity management
+    ├── agent_blueprint.py       # Agent blueprint definition
+    └── agent.py                 # Main agent implementation
+
+ai_search_ingestion/
+├── __init__.py
+├── __main__.py
+└── create_index_and_documents.py  # Index creation & document ingestion
 ```
 
 ### Requirements

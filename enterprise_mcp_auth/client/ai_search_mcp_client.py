@@ -6,6 +6,7 @@ server using FastMCP's built-in OAuth flow (browser-based authorization).
 
 import os
 import sys
+import json
 import argparse
 import asyncio
 from dotenv import load_dotenv
@@ -26,11 +27,14 @@ async def search_documents_command(client: Client, query: str, top: int):
     try:
         result = await client.call_tool("search_documents", {"query": query, "top": top})
         
-        if not result:
+        # Extract data from CallToolResult
+        documents = json.loads(result.content[0].text) if result.content else []
+        
+        if not documents:
             print("No results found.")
             return
         
-        for i, doc in enumerate(result, 1):
+        for i, doc in enumerate(documents, 1):
             print(f"\nResult {i}:")
             for key, value in doc.items():
                 print(f"  {key}: {value}")
@@ -46,12 +50,15 @@ async def get_document_command(client: Client, doc_id: str):
     try:
         result = await client.call_tool("get_document", {"id": doc_id})
         
-        if "error" in result:
-            print(f"Error: {result['error']}")
+        # Extract data from CallToolResult
+        document = json.loads(result.content[0].text) if result.content else {}
+        
+        if "error" in document:
+            print(f"Error: {document['error']}")
             return
         
         print("\nDocument:")
-        for key, value in result.items():
+        for key, value in document.items():
             print(f"  {key}: {value}")
     except Exception as e:
         print(f"Error: {e}")
@@ -65,11 +72,14 @@ async def suggest_command(client: Client, query: str, top: int):
     try:
         result = await client.call_tool("suggest", {"query": query, "top": top})
         
-        if not result:
+        # Extract data from CallToolResult
+        suggestions = json.loads(result.content[0].text) if result.content else []
+        
+        if not suggestions:
             print("No suggestions found.")
             return
         
-        for i, doc in enumerate(result, 1):
+        for i, doc in enumerate(suggestions, 1):
             print(f"\nSuggestion {i}:")
             for key, value in doc.items():
                 print(f"  {key}: {value}")

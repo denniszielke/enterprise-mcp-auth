@@ -5,6 +5,8 @@ and uploads sample documents for testing.
 """
 
 import os
+import subprocess
+import json
 import sys
 from typing import List, Dict, Any
 from dotenv import load_dotenv
@@ -17,6 +19,8 @@ from azure.search.documents.indexes.models import (
     SearchableField,
     SearchFieldDataType,
     SearchSuggester,
+    PermissionFilter,
+    SearchIndexPermissionFilterOption
 )
 
 # Load environment variables
@@ -26,6 +30,8 @@ load_dotenv()
 AZURE_SEARCH_ENDPOINT = os.getenv("AZURE_SEARCH_ENDPOINT", "")
 AZURE_SEARCH_INDEX = os.getenv("AZURE_SEARCH_INDEX", "documents")
 AZURE_SEARCH_ADMIN_KEY = os.getenv("AZURE_SEARCH_ADMIN_KEY", "")
+AI_SEARCH_QUERY_USER_ID = os.getenv("AI_SEARCH_QUERY_USER_ID", "").strip()
+AI_SEARCH_QUERY_GROUP_ID = os.getenv("AI_SEARCH_QUERY_GROUP_ID", "").strip()
 
 
 def create_index_with_permission_filtering(index_client: SearchIndexClient, index_name: str):
@@ -49,12 +55,14 @@ def create_index_with_permission_filtering(index_client: SearchIndexClient, inde
             name="oid",
             type=SearchFieldDataType.Collection(SearchFieldDataType.String),
             filterable=True,
+            permission_filter=PermissionFilter.USER_IDS 
             # This field will be used for USER_IDS permission filtering
         ),
         SimpleField(
             name="group",
             type=SearchFieldDataType.Collection(SearchFieldDataType.String),
             filterable=True,
+            permission_filter=PermissionFilter.GROUP_IDS
             # This field will be used for GROUP_IDS permission filtering
         ),
         SearchableField(
@@ -89,6 +97,7 @@ def create_index_with_permission_filtering(index_client: SearchIndexClient, inde
         name=index_name,
         fields=fields,
         suggesters=suggesters,
+        permission_filter_option=SearchIndexPermissionFilterOption.ENABLED
     )
     
     # Delete index if it exists
@@ -112,76 +121,104 @@ def create_index_with_permission_filtering(index_client: SearchIndexClient, inde
 
 def get_sample_documents() -> List[Dict[str, Any]]:
     """Generate sample documents for testing.
-    
+
+    The current user ID, AI_SEARCH_QUERY_USER_ID, and AI_SEARCH_QUERY_GROUP_ID
+    are automatically added to every document's oid/group fields so the
+    signed-in user always has access to all sample documents.
+
+    Args:
+        current_user_id: Object ID of the current Azure AD user.
+
     Returns:
         List of sample documents with various permission settings
     """
-    return [
+    # Collect extra IDs to inject into every document
+    extra_oids: List[str] = []
+  
+    if AI_SEARCH_QUERY_USER_ID:
+        extra_oids.append(AI_SEARCH_QUERY_USER_ID)
+
+    extra_groups: List[str] = []
+    if AI_SEARCH_QUERY_GROUP_ID:
+        extra_groups.append(AI_SEARCH_QUERY_GROUP_ID)
+
+    documents = [
         {
             "id": "doc1",
-            "oid": ["user1@example.com", "user2@example.com"],
-            "group": ["group1", "group2"],
+            "oid": [],
+            "group": [],
             "name": "Security Best Practices",
             "content": "This document contains security best practices for enterprise applications including authentication, authorization, and data protection strategies.",
             "category": "Security",
         },
         {
             "id": "doc2",
-            "oid": ["user1@example.com"],
-            "group": ["group1"],
+            "oid": [],
+            "group": [],
             "name": "Azure AI Search Overview",
             "content": "Azure AI Search is a cloud search service that provides infrastructure, APIs, and tools for building search experiences over private, heterogeneous content in web, mobile, and enterprise applications.",
             "category": "Documentation",
         },
         {
             "id": "doc3",
-            "oid": ["user2@example.com", "user3@example.com"],
-            "group": ["group2", "group3"],
+            "oid": [],
+            "group": [],
             "name": "MCP Protocol Guide",
             "content": "The Model Context Protocol (MCP) is an open protocol that standardizes how applications provide context to LLMs. This guide covers authentication, transport, and tool definitions.",
             "category": "Documentation",
         },
         {
             "id": "doc4",
-            "oid": ["user1@example.com", "user2@example.com", "user3@example.com"],
-            "group": ["group1", "group2", "group3"],
+            "oid": [],
+            "group": [],
             "name": "Enterprise Authentication Patterns",
             "content": "This document describes various enterprise authentication patterns including OAuth 2.0, OpenID Connect, SAML, and On-Behalf-Of flow for secure access to resources.",
             "category": "Security",
         },
         {
             "id": "doc5",
-            "oid": ["user3@example.com"],
-            "group": ["group3"],
+            "oid": [],
+            "group": [],
             "name": "Python Development Guide",
             "content": "A comprehensive guide to Python development covering best practices, code organization, testing strategies, and common patterns for building maintainable applications.",
             "category": "Development",
         },
         {
             "id": "doc6",
-            "oid": ["user1@example.com", "user4@example.com"],
-            "group": ["group1", "group4"],
+            "oid": [],
+            "group": [],
             "name": "Secure API Design",
             "content": "Best practices for designing secure APIs including rate limiting, input validation, output encoding, authentication mechanisms, and secure communication protocols.",
             "category": "Security",
         },
         {
             "id": "doc7",
-            "oid": ["user2@example.com", "user3@example.com", "user4@example.com"],
-            "group": ["group2", "group3", "group4"],
+            "oid": [],
+            "group": [],
             "name": "Search Optimization Techniques",
             "content": "Learn about various search optimization techniques including indexing strategies, query optimization, relevance tuning, and performance monitoring.",
             "category": "Documentation",
         },
         {
             "id": "doc8",
-            "oid": ["user1@example.com"],
-            "group": ["group1"],
+            "oid": [],
+            "group": [],
             "name": "Secret Management in Azure",
             "content": "Guide to managing secrets in Azure using Azure Key Vault, managed identities, and secure coding practices to prevent credential leakage.",
             "category": "Security",
         },
     ]
+
+    # Inject current user / query IDs into every document
+    for doc in documents:
+        for oid in extra_oids:
+            if oid not in doc["oid"]:
+                doc["oid"].append(oid)
+        for gid in extra_groups:
+            if gid not in doc["group"]:
+                doc["group"].append(gid)
+
+    return documents
 
 
 def upload_documents(search_client: SearchClient, documents: List[Dict[str, Any]]):
@@ -249,10 +286,13 @@ def main():
         index_name=AZURE_SEARCH_INDEX,
         credential=credential
     )
+
+    if AI_SEARCH_QUERY_USER_ID:
+        print(f"AI_SEARCH_QUERY_USER_ID: {AI_SEARCH_QUERY_USER_ID}")
+    if AI_SEARCH_QUERY_GROUP_ID:
+        print(f"AI_SEARCH_QUERY_GROUP_ID: {AI_SEARCH_QUERY_GROUP_ID}")
     
-    # Get sample documents
     documents = get_sample_documents()
-    
     # Upload documents
     try:
         upload_documents(search_client, documents)
@@ -266,8 +306,8 @@ def main():
     print(f"\nYou can now query the index using the MCP server and client.")
     print(f"The index contains {len(documents)} documents with various permission settings.")
     print("\nPermission filtering is enabled:")
-    print("  - 'oid' field contains user IDs (e.g., user1@example.com)")
-    print("  - 'group' field contains group IDs (e.g., group1, group2)")
+    print("  - 'oid' field contains user IDs (from current user and AI_SEARCH_QUERY_USER_ID)")
+    print("  - 'group' field contains group IDs (from AI_SEARCH_QUERY_GROUP_ID)")
     print("\nDocuments will be filtered based on the user's OBO token when querying")
     print("through the MCP server using the x-ms-query-source-authorization header.")
 
