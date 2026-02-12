@@ -8,11 +8,14 @@ import os
 import subprocess
 import json
 import sys
+import asyncio
 from typing import List, Dict, Any
 from dotenv import load_dotenv
 from azure.core.credentials import AzureKeyCredential
+from azure.identity import DefaultAzureCredential
 from azure.search.documents import SearchClient
 from azure.search.documents.indexes import SearchIndexClient
+from msgraph import GraphServiceClient
 from azure.search.documents.indexes.models import (
     SearchIndex,
     SimpleField,
@@ -32,6 +35,9 @@ AZURE_SEARCH_INDEX = os.getenv("AZURE_SEARCH_INDEX", "documents")
 AZURE_SEARCH_ADMIN_KEY = os.getenv("AZURE_SEARCH_ADMIN_KEY", "")
 AI_SEARCH_QUERY_USER_ID = os.getenv("AI_SEARCH_QUERY_USER_ID", "").strip()
 AI_SEARCH_QUERY_GROUP_ID = os.getenv("AI_SEARCH_QUERY_GROUP_ID", "").strip()
+
+# Set to True to delete and recreate the index; False to keep existing index
+RECREATE_INDEX = False
 
 
 def create_index_with_permission_filtering(index_client: SearchIndexClient, index_name: str):
@@ -100,12 +106,21 @@ def create_index_with_permission_filtering(index_client: SearchIndexClient, inde
         permission_filter_option=SearchIndexPermissionFilterOption.ENABLED
     )
     
-    # Delete index if it exists
-    try:
-        index_client.delete_index(index_name)
-        print(f"Deleted existing index '{index_name}'")
-    except Exception:
-        pass
+    # Only delete and recreate if RECREATE_INDEX is True
+    if RECREATE_INDEX:
+        try:
+            index_client.delete_index(index_name)
+            print(f"Deleted existing index '{index_name}'")
+        except Exception:
+            pass
+    else:
+        # Check if the index already exists; if so, skip creation
+        try:
+            existing = index_client.get_index(index_name)
+            print(f"Index '{index_name}' already exists. Skipping creation (set RECREATE_INDEX=True to recreate).")
+            return
+        except Exception:
+            pass  # Index doesn't exist, proceed with creation
     
     # Create the index
     result = index_client.create_index(index)
@@ -120,18 +135,20 @@ def create_index_with_permission_filtering(index_client: SearchIndexClient, inde
 
 
 def get_sample_documents() -> List[Dict[str, Any]]:
-    """Generate sample documents for testing.
+    """Load sample documents from JSON file and inject configured user/group IDs.
 
-    The current user ID, AI_SEARCH_QUERY_USER_ID, and AI_SEARCH_QUERY_GROUP_ID
+    The AI_SEARCH_QUERY_USER_ID and AI_SEARCH_QUERY_GROUP_ID env vars
     are automatically added to every document's oid/group fields so the
-    signed-in user always has access to all sample documents.
-
-    Args:
-        current_user_id: Object ID of the current Azure AD user.
+    specified user/group always has access to all sample documents.
 
     Returns:
         List of sample documents with various permission settings
     """
+    # Load documents from JSON file
+    json_path = os.path.join(os.path.dirname(__file__), "sample_documents.json")
+    with open(json_path, "r") as f:
+        documents = json.load(f)
+
     # Collect extra IDs to inject into every document
     extra_oids: List[str] = []
   
@@ -141,73 +158,6 @@ def get_sample_documents() -> List[Dict[str, Any]]:
     extra_groups: List[str] = []
     if AI_SEARCH_QUERY_GROUP_ID:
         extra_groups.append(AI_SEARCH_QUERY_GROUP_ID)
-
-    documents = [
-        {
-            "id": "doc1",
-            "oid": [],
-            "group": [],
-            "name": "Security Best Practices",
-            "content": "This document contains security best practices for enterprise applications including authentication, authorization, and data protection strategies.",
-            "category": "Security",
-        },
-        {
-            "id": "doc2",
-            "oid": [],
-            "group": [],
-            "name": "Azure AI Search Overview",
-            "content": "Azure AI Search is a cloud search service that provides infrastructure, APIs, and tools for building search experiences over private, heterogeneous content in web, mobile, and enterprise applications.",
-            "category": "Documentation",
-        },
-        {
-            "id": "doc3",
-            "oid": [],
-            "group": [],
-            "name": "MCP Protocol Guide",
-            "content": "The Model Context Protocol (MCP) is an open protocol that standardizes how applications provide context to LLMs. This guide covers authentication, transport, and tool definitions.",
-            "category": "Documentation",
-        },
-        {
-            "id": "doc4",
-            "oid": [],
-            "group": [],
-            "name": "Enterprise Authentication Patterns",
-            "content": "This document describes various enterprise authentication patterns including OAuth 2.0, OpenID Connect, SAML, and On-Behalf-Of flow for secure access to resources.",
-            "category": "Security",
-        },
-        {
-            "id": "doc5",
-            "oid": [],
-            "group": [],
-            "name": "Python Development Guide",
-            "content": "A comprehensive guide to Python development covering best practices, code organization, testing strategies, and common patterns for building maintainable applications.",
-            "category": "Development",
-        },
-        {
-            "id": "doc6",
-            "oid": [],
-            "group": [],
-            "name": "Secure API Design",
-            "content": "Best practices for designing secure APIs including rate limiting, input validation, output encoding, authentication mechanisms, and secure communication protocols.",
-            "category": "Security",
-        },
-        {
-            "id": "doc7",
-            "oid": [],
-            "group": [],
-            "name": "Search Optimization Techniques",
-            "content": "Learn about various search optimization techniques including indexing strategies, query optimization, relevance tuning, and performance monitoring.",
-            "category": "Documentation",
-        },
-        {
-            "id": "doc8",
-            "oid": [],
-            "group": [],
-            "name": "Secret Management in Azure",
-            "content": "Guide to managing secrets in Azure using Azure Key Vault, managed identities, and secure coding practices to prevent credential leakage.",
-            "category": "Security",
-        },
-    ]
 
     # Inject current user / query IDs into every document
     for doc in documents:
@@ -219,6 +169,34 @@ def get_sample_documents() -> List[Dict[str, Any]]:
                 doc["group"].append(gid)
 
     return documents
+
+
+async def get_current_user_info() -> tuple[str, List[str]]:
+    """Fetch the current logged-in user's OID and group IDs via Microsoft Graph.
+    
+    Returns:
+        Tuple of (user OID, list of group IDs)
+    """
+    credential = DefaultAzureCredential()
+    client = GraphServiceClient(credentials=credential, scopes=["https://graph.microsoft.com/.default"])
+    
+    me = await client.me.get()
+    oid = me.id
+    print(f"Current user OID: {oid}")
+    print(f"Current user: {me.display_name} ({me.user_principal_name})")
+    
+    # Get group memberships
+    group_ids: List[str] = []
+    member_of = await client.me.member_of.get()
+    if member_of and member_of.value:
+        for item in member_of.value:
+            if hasattr(item, 'id') and item.id:
+                group_ids.append(item.id)
+    
+    if group_ids:
+        print(f"User belongs to {len(group_ids)} groups")
+    
+    return oid, group_ids
 
 
 def upload_documents(search_client: SearchClient, documents: List[Dict[str, Any]]):
@@ -248,6 +226,11 @@ def upload_documents(search_client: SearchClient, documents: List[Dict[str, Any]
 
 
 def main():
+    """Main entry point for index creation and document ingestion."""
+    asyncio.run(_async_main())
+
+
+async def _async_main():
     """Main entry point for index creation and document ingestion."""
     # Validate required environment variables
     if not AZURE_SEARCH_ENDPOINT:
@@ -292,7 +275,25 @@ def main():
     if AI_SEARCH_QUERY_GROUP_ID:
         print(f"AI_SEARCH_QUERY_GROUP_ID: {AI_SEARCH_QUERY_GROUP_ID}")
     
+    # Fetch current user OID and groups from Microsoft Graph
+    try:
+        current_user_oid, current_user_groups = await get_current_user_info()
+    except Exception as e:
+        print(f"Warning: Could not fetch current user info from Graph: {e}")
+        current_user_oid = None
+        current_user_groups = []
+    
     documents = get_sample_documents()
+    
+    # Inject current user OID and groups into every document
+    if current_user_oid:
+        for doc in documents:
+            if current_user_oid not in doc["oid"]:
+                doc["oid"].append(current_user_oid)
+    for gid in current_user_groups:
+        for doc in documents:
+            if gid not in doc["group"]:
+                doc["group"].append(gid)
     # Upload documents
     try:
         upload_documents(search_client, documents)

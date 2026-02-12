@@ -1,0 +1,98 @@
+[
+  {
+    "id": "doc1",
+    "oid": [ "example@microsoft.com"],
+    "group": [],
+    "name": "Security Best Practices",
+    "content": "This document contains security best practices for enterprise applications including authentication, authorization, and data protection strategies.",
+    "category": "Security"
+  },
+  {
+    "id": "doc2",
+    "oid": [ "example@microsoft.com"],
+    "group": [],
+    "name": "Azure AI Search Overview",
+    "content": "Azure AI Search is a cloud search service that provides infrastructure, APIs, and tools for building search experiences over private, heterogeneous content in web, mobile, and enterprise applications.",
+    "category": "Documentation"
+  },
+  {
+    "id": "doc3",
+    "oid": ["example@microsoft.com"],
+    "group": [],
+    "name": "MCP Protocol Guide",
+    "content": "The Model Context Protocol (MCP) is an open protocol that standardizes how applications provide context to LLMs. This guide covers authentication, transport, and tool definitions.",
+    "category": "Documentation"
+  },
+  {
+    "id": "doc4",
+    "oid": [],
+    "group": [],
+    "name": "Enterprise Authentication Patterns",
+    "content": "This document describes various enterprise authentication patterns including OAuth 2.0, OpenID Connect, SAML, and On-Behalf-Of flow for secure access to resources.",
+    "category": "Security"
+  },
+  {
+    "id": "doc5",
+    "oid": ["example@microsoft.com"],
+    "group": [],
+    "name": "Python Development Guide",
+    "content": "A comprehensive guide to Python development covering best practices, code organization, testing strategies, and common patterns for building maintainable applications.",
+    "category": "Development"
+  },
+  {
+    "id": "doc6",
+    "oid": ["example@microsoft.com"],
+    "group": [],
+    "name": "Secure API Design",
+    "content": "Best practices for designing secure APIs including rate limiting, input validation, output encoding, authentication mechanisms, and secure communication protocols.",
+    "category": "Security"
+  },
+  {
+    "id": "doc7",
+    "oid": ["example@microsoft.com"],
+    "group": [],
+    "name": "Search Optimization Techniques",
+    "content": "Learn about various search optimization techniques including indexing strategies, query optimization, relevance tuning, and performance monitoring.",
+    "category": "Documentation"
+  },
+  {
+    "id": "doc8",
+    "oid": [],
+    "group": [],
+    "name": "Secret Management in Azure",
+    "content": "Guide to managing secrets in Azure using Azure Key Vault, managed identities, and secure coding practices to prevent credential leakage.",
+    "category": "Security"
+  },
+  {
+    "id": "doc9",
+    "oid": ["example@microsoft.com"],
+    "group": [],
+    "name": "Security Agent Identity",
+    "content": "Unique identity for security agents in Azure AI Search with Entra integration.",
+    "category": "Personal"
+  },
+  {
+    "id": "doc10",
+    "oid": ["example@microsoft.com"],
+    "group": [],
+    "name": "Azure AI Search Enterprise Features",
+    "content": "Entra secures personal data with Azure AI Search.",
+    "category": "Personal"
+  },
+  {
+    "id": "doc11",
+    "oid": ["example@microsoft.com"],
+    "group": [],
+    "name": "Security User Identity",
+    "content": "Unique identity for security users in Azure AI Search with Entra integration.",
+    "category": "Member"
+  },
+  {
+    "id": "doc12",
+    "oid": ["example@microsoft.com"],
+    "group": [],
+    "name": "Azure User content",
+    "content": "Entra secures personal data with Azure AI Search.",
+    "category": "Member"
+  }
+]

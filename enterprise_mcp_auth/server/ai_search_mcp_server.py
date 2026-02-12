@@ -160,8 +160,9 @@ def get_search_client_with_obo(user_token: str) -> tuple[SearchClient, str]:
     """
     obo_token = get_obo_token(user_token)
     
-    # Use admin key credential for the SearchClient, and pass the OBO token
-    # via x_ms_query_source_authorization to enforce document-level ACLs.
+    # Use admin key for SearchClient authentication (API access).
+    # Security trimming is enforced by the index's permissionFilterOption=ENABLED
+    # setting combined with the OBO token passed via x_ms_query_source_authorization.
     search_client = SearchClient(
         endpoint=AZURE_SEARCH_ENDPOINT,
         index_name=AZURE_SEARCH_INDEX,
@@ -193,7 +194,7 @@ async def search_documents(query: str, top: int = 5) -> List[Dict[str, Any]]:
     
     # Create search client with OBO token
     search_client, obo_token = get_search_client_with_obo(user_token)
-    
+
     # Perform search with OBO token for permission filtering
     results = search_client.search(
         search_text=query,
