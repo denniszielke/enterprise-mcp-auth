@@ -2,11 +2,34 @@
 
 This module provides a wrapper around the FastMCP client that automatically
 injects the Authorization header with a bearer token for all requests.
+
+OpenTelemetry traces and metrics are emitted for every tool call.  Set
+``APPLICATIONINSIGHTS_CONNECTION_STRING`` in the environment to export to Azure
+Application Insights, otherwise spans are printed to stdout.
 """
 
 from typing import Any, Dict, List, Optional
 from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
+
+from enterprise_mcp_auth.telemetry import setup_telemetry, get_tracer, get_meter, record_exception
+
+# Initialize OpenTelemetry for the client side.
+setup_telemetry(service_name="mcp-client")
+_tracer = get_tracer(__name__)
+_meter = get_meter(__name__)
+
+# ---------- Metrics instruments ----------
+_client_calls = _meter.create_counter(
+    name="mcp.client.tool_calls",
+    description="Total number of MCP tool calls made from the client",
+    unit="1",
+)
+_client_errors = _meter.create_counter(
+    name="mcp.client.tool_errors",
+    description="Total number of failed MCP tool calls from the client",
+    unit="1",
+)
 
 
 class AuthenticatedMCPClient:
@@ -78,8 +101,18 @@ class AuthenticatedMCPClient:
         """
         if self._client is None:
             raise RuntimeError("Client not connected. Call connect() first.")
-        
-        return await self._client.call_tool(tool_name, **kwargs)
+
+        _client_calls.add(1, {"tool": tool_name})
+        with _tracer.start_as_current_span(f"mcp.client.call_tool.{tool_name}") as span:
+            span.set_attribute("mcp.tool_name", tool_name)
+            span.set_attribute("mcp.server_url", self.base_url)
+            try:
+                result = await self._client.call_tool(tool_name, **kwargs)
+                return result
+            except Exception as exc:
+                _client_errors.add(1, {"tool": tool_name})
+                record_exception(span, exc)
+                raise
     
     async def search_documents(self, query: str, top: int = 5) -> List[Dict[str, Any]]:
         """Search documents in Azure AI Search.
