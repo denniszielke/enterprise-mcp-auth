@@ -3,6 +3,10 @@
 This module implements an MCP server that exposes Azure AI Search functionality
 through MCP tools while enforcing document-level access control using OAuth
 tokens and the On-Behalf-Of (OBO) flow.
+
+OpenTelemetry traces and metrics are emitted for every tool invocation.  Set
+``APPLICATIONINSIGHTS_CONNECTION_STRING`` in the environment to export to Azure
+Application Insights, otherwise spans are printed to stdout.
 """
 
 import os
@@ -17,6 +21,8 @@ from azure.search.documents import SearchClient
 from fastmcp import FastMCP
 from fastmcp.server.auth.providers.azure import AzureProvider
 from fastmcp.server.dependencies import get_access_token
+
+from enterprise_mcp_auth.telemetry import setup_telemetry, get_tracer, get_meter, record_exception
 
 # Configure logging
 logging.basicConfig(
@@ -36,6 +42,34 @@ AZURE_SEARCH_ADMIN_KEY = os.getenv("AZURE_SEARCH_ADMIN_KEY", "")
 AZURE_CLIENT_ID = os.getenv("AZURE_CLIENT_ID", "")
 AZURE_CLIENT_SECRET = os.getenv("AZURE_CLIENT_SECRET", "")
 AZURE_TENANT_ID = os.getenv("AZURE_TENANT_ID", "")
+
+# Initialize OpenTelemetry for the server.  Must be called before creating the
+# tracer / meter so that the providers are in place.
+setup_telemetry(service_name="mcp-server")
+_tracer = get_tracer(__name__)
+_meter = get_meter(__name__)
+
+# ---------- Metrics instruments ----------
+_tool_calls = _meter.create_counter(
+    name="mcp.server.tool_calls",
+    description="Total number of MCP tool calls",
+    unit="1",
+)
+_tool_errors = _meter.create_counter(
+    name="mcp.server.tool_errors",
+    description="Total number of failed MCP tool calls",
+    unit="1",
+)
+_obo_exchanges = _meter.create_counter(
+    name="mcp.server.obo_token_exchanges",
+    description="Total number of OBO token exchange attempts",
+    unit="1",
+)
+_search_result_count = _meter.create_histogram(
+    name="mcp.server.search_result_count",
+    description="Number of documents returned per search call",
+    unit="1",
+)
 
 # Initialize Auth via AzureProvider
 auth_provider = None
@@ -125,28 +159,41 @@ def get_obo_token(user_token: str) -> str:
     
     logger.info(f"Requesting OBO token for Azure AI Search...")
     logger.info(f"  Scopes: https://search.azure.com/.default")
-    
-    result = msal_app.acquire_token_on_behalf_of(
-        user_assertion=user_token,
-        scopes=["https://search.azure.com/.default"],
-    )
-    
-    if "access_token" in result:
-        obo_claims = decode_jwt_payload(result["access_token"])
-        logger.info("OBO token acquired successfully!")
-        logger.info(f"OBO token claims:")
-        logger.info(f"  iss: {obo_claims.get('iss', 'N/A')}")
-        logger.info(f"  aud: {obo_claims.get('aud', 'N/A')}")
-        logger.info(f"  oid: {obo_claims.get('oid', 'N/A')}")
-        return result["access_token"]
-    else:
+
+    _obo_exchanges.add(1)
+    with _tracer.start_as_current_span("obo_token_exchange") as span:
+        span.set_attribute("token.oid", token_claims.get("oid", ""))
+        span.set_attribute("token.scp", token_claims.get("scp", ""))
+        try:
+            result = msal_app.acquire_token_on_behalf_of(
+                user_assertion=user_token,
+                scopes=["https://search.azure.com/.default"],
+            )
+        except Exception as exc:
+            record_exception(span, exc)
+            raise
+
+        if "access_token" in result:
+            obo_claims = decode_jwt_payload(result["access_token"])
+            logger.info("OBO token acquired successfully!")
+            logger.info(f"OBO token claims:")
+            logger.info(f"  iss: {obo_claims.get('iss', 'N/A')}")
+            logger.info(f"  aud: {obo_claims.get('aud', 'N/A')}")
+            logger.info(f"  oid: {obo_claims.get('oid', 'N/A')}")
+            span.set_attribute("obo.success", True)
+            return result["access_token"]
+
         error = result.get("error", "unknown_error")
         error_desc = result.get("error_description", "Failed to acquire OBO token")
         logger.error(f"OBO token acquisition failed!")
         logger.error(f"  Error: {error}")
         logger.error(f"  Description: {error_desc}")
         logger.error(f"  Full result: {json.dumps(result, indent=2)}")
-        raise Exception(f"OBO token acquisition failed: {error}: {error_desc}")
+        span.set_attribute("obo.success", False)
+        span.set_attribute("obo.error", error)
+        exc = Exception(f"OBO token acquisition failed: {error}: {error_desc}")
+        record_exception(span, exc)
+        raise exc
 
 
 def get_search_client_with_obo(user_token: str) -> tuple[SearchClient, str]:
@@ -186,29 +233,40 @@ async def search_documents(query: str, top: int = 5) -> List[Dict[str, Any]]:
     Returns:
         List of matching documents with their fields
     """
-    # Get user token from OAuth context
-    access_token = get_access_token()
-    if not access_token:
-        return [{"error": "Not authenticated"}]
-    user_token = access_token.token
-    
-    # Create search client with OBO token
-    search_client, obo_token = get_search_client_with_obo(user_token)
+    _tool_calls.add(1, {"tool": "search_documents"})
+    with _tracer.start_as_current_span("mcp.tool.search_documents") as span:
+        span.set_attribute("search.query", query)
+        span.set_attribute("search.top", top)
+        try:
+            # Get user token from OAuth context
+            access_token = get_access_token()
+            if not access_token:
+                return [{"error": "Not authenticated"}]
+            user_token = access_token.token
+            
+            # Create search client with OBO token
+            search_client, obo_token = get_search_client_with_obo(user_token)
 
-    # Perform search with OBO token for permission filtering
-    results = search_client.search(
-        search_text=query,
-        top=top,
-        x_ms_query_source_authorization=obo_token,
-    )
-    
-    # Convert results to JSON-serializable format
-    documents = []
-    for result in results:
-        doc = {k: v for k, v in result.items() if not k.startswith("@")}
-        documents.append(doc)
-    
-    return documents
+            # Perform search with OBO token for permission filtering
+            results = search_client.search(
+                search_text=query,
+                top=top,
+                x_ms_query_source_authorization=obo_token,
+            )
+            
+            # Convert results to JSON-serializable format
+            documents = []
+            for result in results:
+                doc = {k: v for k, v in result.items() if not k.startswith("@")}
+                documents.append(doc)
+
+            span.set_attribute("search.result_count", len(documents))
+            _search_result_count.record(len(documents), {"tool": "search_documents"})
+            return documents
+        except Exception as exc:
+            _tool_errors.add(1, {"tool": "search_documents"})
+            record_exception(span, exc)
+            raise
 
 
 @mcp.tool()
@@ -224,26 +282,34 @@ async def get_document(id: str) -> Dict[str, Any]:
     Returns:
         Document fields as a dictionary
     """
-    # Get user token from OAuth context
-    access_token = get_access_token()
-    if not access_token:
-        return {"error": "Not authenticated"}
-    user_token = access_token.token
-    
-    # Create search client with OBO token
-    search_client, obo_token = get_search_client_with_obo(user_token)
-    
-    # Get document with OBO token for permission filtering
-    try:
-        document = search_client.get_document(
-            key=id,
-            x_ms_query_source_authorization=obo_token,
-        )
-        
-        # Convert to JSON-serializable format
-        return {k: v for k, v in document.items() if not k.startswith("@")}
-    except Exception as e:
-        return {"error": str(e), "id": id}
+    _tool_calls.add(1, {"tool": "get_document"})
+    with _tracer.start_as_current_span("mcp.tool.get_document") as span:
+        span.set_attribute("document.id", id)
+        try:
+            # Get user token from OAuth context
+            access_token = get_access_token()
+            if not access_token:
+                return {"error": "Not authenticated"}
+            user_token = access_token.token
+            
+            # Create search client with OBO token
+            search_client, obo_token = get_search_client_with_obo(user_token)
+        except Exception as exc:
+            _tool_errors.add(1, {"tool": "get_document"})
+            record_exception(span, exc)
+            raise
+
+        # Get document with OBO token for permission filtering.
+        # Retrieval errors are returned as structured dicts rather than raised.
+        try:
+            document = search_client.get_document(
+                key=id,
+                x_ms_query_source_authorization=obo_token,
+            )
+            # Convert to JSON-serializable format
+            return {k: v for k, v in document.items() if not k.startswith("@")}
+        except Exception as e:
+            return {"error": str(e), "id": id}
 
 
 @mcp.tool()
@@ -260,45 +326,58 @@ async def suggest(query: str, top: int = 5) -> List[Dict[str, Any]]:
     Returns:
         List of suggested documents with their fields
     """
-    # Get user token from OAuth context
-    access_token = get_access_token()
-    if not access_token:
-        return [{"error": "Not authenticated"}]
-    user_token = access_token.token
-    
-    # Create search client with OBO token
-    search_client, obo_token = get_search_client_with_obo(user_token)
-    
-    # Get suggestions with OBO token for permission filtering
-    results = search_client.suggest(
-        search_text=query,
-        suggester_name="sg",
-        top=top,
-        x_ms_query_source_authorization=obo_token,
-    )
-    
-    # Convert results to JSON-serializable format
-    suggestions = []
-    for result in results:
-        doc = {k: v for k, v in result.items() if not k.startswith("@")}
-        suggestions.append(doc)
-    
-    return suggestions
+    _tool_calls.add(1, {"tool": "suggest"})
+    with _tracer.start_as_current_span("mcp.tool.suggest") as span:
+        span.set_attribute("suggest.query", query)
+        span.set_attribute("suggest.top", top)
+        try:
+            # Get user token from OAuth context
+            access_token = get_access_token()
+            if not access_token:
+                return [{"error": "Not authenticated"}]
+            user_token = access_token.token
+            
+            # Create search client with OBO token
+            search_client, obo_token = get_search_client_with_obo(user_token)
+            
+            # Get suggestions with OBO token for permission filtering
+            results = search_client.suggest(
+                search_text=query,
+                suggester_name="sg",
+                top=top,
+                x_ms_query_source_authorization=obo_token,
+            )
+            
+            # Convert results to JSON-serializable format
+            suggestions = []
+            for result in results:
+                doc = {k: v for k, v in result.items() if not k.startswith("@")}
+                suggestions.append(doc)
+
+            span.set_attribute("suggest.result_count", len(suggestions))
+            _search_result_count.record(len(suggestions), {"tool": "suggest"})
+            return suggestions
+        except Exception as exc:
+            _tool_errors.add(1, {"tool": "suggest"})
+            record_exception(span, exc)
+            raise
 
 
 @mcp.tool()
 async def get_user_info() -> dict:
     """Returns information about the authenticated Azure user."""
-    token = get_access_token()
-    if not token:
-        return {"error": "Not authenticated"}
-    return {
-        "azure_id": token.claims.get("sub"),
-        "email": token.claims.get("email"),
-        "name": token.claims.get("name"),
-        "job_title": token.claims.get("job_title"),
-        "office_location": token.claims.get("office_location"),
-    }
+    _tool_calls.add(1, {"tool": "get_user_info"})
+    with _tracer.start_as_current_span("mcp.tool.get_user_info"):
+        token = get_access_token()
+        if not token:
+            return {"error": "Not authenticated"}
+        return {
+            "azure_id": token.claims.get("sub"),
+            "email": token.claims.get("email"),
+            "name": token.claims.get("name"),
+            "job_title": token.claims.get("job_title"),
+            "office_location": token.claims.get("office_location"),
+        }
 
 
 def main():

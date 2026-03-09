@@ -12,3 +12,8 @@ agent-framework-core==1.0.0b260116
 azure-identity==1.25.1
 agent-identity-python-sdk>=0.1.2
 msgraph-sdk==1.54.0
+opentelemetry-api>=1.28.0
+opentelemetry-sdk>=1.28.0
+azure-monitor-opentelemetry-exporter>=1.0.0b31
+starlette>=0.27.0
+uvicorn>=0.24.0
